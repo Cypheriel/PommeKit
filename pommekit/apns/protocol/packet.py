@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from collections.abc import Collection
-from dataclasses import MISSING, dataclass, field, fields
+from dataclasses import MISSING, dataclass, field, fields, is_dataclass
 from io import BytesIO
 from logging import getLogger
 from typing import Annotated, ClassVar, Final, Self, TypeVar, get_origin
@@ -24,20 +24,39 @@ ITEM_LENGTH_BYTES: Final = 2
 logger = getLogger(__name__)
 
 
-@dataclass
-class Item:
-    """Simple dataclass to encapsulate metadata about a command field."""
-
-    item_id: int
-    transformer: DataTransformer = NO_OP_TRANSFORMER
-
-
 def _serialize_item(metadata: Item, value: _T) -> bytes:
     """Serialize an item using the provided metadata and value."""
     serialized_value = metadata.transformer.serialize(value)
     return (
         metadata.item_id.to_bytes(ITEM_ID_BYTES) + len(serialized_value).to_bytes(ITEM_LENGTH_BYTES) + serialized_value
     )
+
+
+def _get_default_field_values(cls: type) -> dict[str, ...]:
+    """Get the default values for all fields in the command class."""
+    if is_dataclass(cls) is False:
+        msg = "The provided class is not a dataclass!"
+        raise ValueError(msg)
+
+    # noinspection PyDataclass
+    return {
+        command_field.name: (
+            command_field.default
+            if command_field.default is not MISSING
+            else command_field.default_factory()
+            if callable(command_field.default_factory)
+            else None
+        )
+        for command_field in fields(cls)
+    }
+
+
+@dataclass
+class Item:
+    """Simple dataclass to encapsulate metadata about a command field."""
+
+    item_id: int
+    transformer: DataTransformer = NO_OP_TRANSFORMER
 
 
 @dataclass(kw_only=True)
@@ -106,17 +125,7 @@ class APNsCommand:
             stream.read(COMMAND_LENGTH_BYTES)  # Skip the length field
 
         unknown_items: list[tuple[int, bytes]] = []
-        values: dict[str, ...] = {
-            command_field.name: (
-                command_field.default
-                if command_field.default is not MISSING
-                else command_field.default_factory()
-                if callable(command_field.default_factory)
-                else None
-            )
-            for command_field in fields(cls)
-            if get_origin(command_field.type) is Annotated
-        }
+        values = _get_default_field_values(cls)
 
         while stream.tell() < len(data):
             item_id = int.from_bytes(stream.read(ITEM_ID_BYTES))
@@ -136,27 +145,21 @@ class APNsCommand:
                 if metadata.item_id != item_id:
                     continue
 
-                if isinstance(values[command_field.name], Collection) and not isinstance(
-                    values[command_field.name],
-                    (str, bytes),
-                ):
+                current_value = values[command_field.name]
+                # If the field is a collection, append the deserialized item to the current value via restructuring
+                if isinstance(current_value, Collection) and not isinstance(current_value, (str, bytes)):
                     if command_field.default_factory is MISSING:
                         msg = "Collection fields must have a default factory!"
                         raise ValueError(msg)
 
-                    collection = command_field.default_factory()
-                    if len(collection) > 0:
-                        logger.debug(
-                            "Collection's default factory is not empty! This will likely cause unexpected behavior.",
-                        )
-
                     values[command_field.name] = command_field.default_factory(
                         (
-                            *values[command_field.name],
+                            *current_value,
                             *command_field.default_factory((metadata.transformer.deserialize(item_data),)),
                         ),
                     )
 
+                # If the field is not a collection, set the value directly — this will overwrite any previous value
                 else:
                     values[command_field.name] = metadata.transformer.deserialize(item_data)
 
