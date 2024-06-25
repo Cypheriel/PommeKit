@@ -1,6 +1,11 @@
 #  PommeKit - Python library with various tools for interacting with Apple services and APIs
 #  Copyright (C) 2024  Cypheriel
-"""Simple mapping of known topics to their hashed values."""
+"""
+Simple mapping of known topics to their hashed values.
+
+>>> TOPIC_HASHES[sha1(b"com.apple.madrid", usedforsecurity=False).digest()] == "com.apple.madrid"
+True
+"""
 
 from __future__ import annotations
 

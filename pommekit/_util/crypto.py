@@ -51,6 +51,12 @@ def b64encoded_der(
 
     :param credential: A `cryptography` credential, or a credential (byte-)string in PEM format.
     :return: The base64-encoded DER representation of the credential.
+
+    >>> from cryptography.hazmat.primitives.asymmetric import rsa
+    >>> key = rsa.generate_private_key(65537, 2048)
+    >>> expected = b64encoded_der(key.private_bytes(Encoding.PEM, PrivateFormat.TraditionalOpenSSL, NoEncryption()))
+    >>> b64encoded_der(key) == expected
+    True
     """
     if hasattr(credential, "private_bytes"):
         result = b64encode(credential.private_bytes(Encoding.DER, PrivateFormat.TraditionalOpenSSL, NoEncryption()))
@@ -68,7 +74,7 @@ def b64encoded_der(
         msg = f"Expected supported PEM, got {type(credential)}."
         raise TypeError(msg)
 
-    return result
+    return result.replace(b"\n", b"")
 
 
 def construct_identity_key(
@@ -77,8 +83,8 @@ def construct_identity_key(
 ) -> bytes:
     """Construct an identity key from the public signing and encryption keys."""
     return (
-        b"\x30\x81\xF6\x81\x43\x00\x41"
+        b"\x30\x81\xf6\x81\x43\x00\x41"
         + public_signing_key.public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
-        + b"\x82\x81\xAE\x00\xAC"
+        + b"\x82\x81\xae\x00\xac"
         + public_encryption_key.public_bytes(Encoding.DER, PublicFormat.PKCS1)
     )

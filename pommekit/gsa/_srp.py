@@ -34,17 +34,29 @@ def _byte_length(value: int) -> int:
 
     :param value: The integer to calculate the byte length of.
     :return: The length of the integer in bytes.
+
+    >>> _byte_length(255)
+    1
+
+    >>> _byte_length(256)
+    2
     """
     return (value.bit_length() + 7) // 8
 
 
 @lru_cache
 def _to_bytes(value: int) -> bytes:
-    """
+    r"""
     Convert an integer to a dynamically-sized bytes object.
 
     :param value: The integer to convert.
     :return: The bytes object.
+
+    >>> _to_bytes(255)
+    b'\xff'
+
+    >>> _to_bytes(256)
+    b'\x01\x00'
     """
     return value.to_bytes(_byte_length(value))
 

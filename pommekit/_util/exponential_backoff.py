@@ -16,6 +16,19 @@ class ExponentialBackoff:
     _delay: float = 0.0
 
     def next(self: ExponentialBackoff) -> float:
+        """
+        Return the next delay in seconds for the exponential backoff.
+
+        >>> backoff = ExponentialBackoff(base_delay=4.0)
+        >>> backoff.next()
+        4.0
+        >>> backoff.next()
+        8.0
+        >>> backoff.next()
+        16.0
+
+        :return: The next delay in seconds.
+        """
         if self._retries >= self.max_retries:
             msg = "Max retries exceeded"
             raise StopIteration(msg)
