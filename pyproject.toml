@@ -23,7 +23,6 @@ websockets = "^12.0"
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.0"
 pytest-asyncio = "^0.23.6"
-black = "^24.4.2"
 ruff = "^0.4.4"
 pre-commit = "^3.7.1"
 
