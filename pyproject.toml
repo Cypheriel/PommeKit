@@ -6,6 +6,11 @@ authors = [
     "Mikel <61402923+Cypheriel@users.noreply.github.com>",
 ]
 readme = "README.md"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/Cypheriel/PommeKit"
+
+[tool.poetry.urls]
+"Bug Tracker" = "https://github.com/Cypheriel/PommeKit/issues"
 
 [tool.poetry.dependencies]
 python = "^3.11"
