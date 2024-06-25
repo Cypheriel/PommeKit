@@ -15,7 +15,6 @@ repository = "https://github.com/Cypheriel/PommeKit"
 [tool.poetry.dependencies]
 python = "^3.11"
 cryptography = "^42.0.7"
-rich = "^13.7.1"
 httpx = "^0.27.0"
 websockets = "^12.0"
 
