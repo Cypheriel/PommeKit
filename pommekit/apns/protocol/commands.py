@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Flag, auto
 from logging import getLogger
-from typing import Annotated, Collection, Final, Literal, TypeAlias
+from typing import Annotated, Collection, Final, Literal, TypeAlias, TypeVar
 
 from cryptography.x509 import Certificate
 
@@ -52,6 +52,7 @@ COMMAND_MAP: Final[defaultdict[(int, Direction), type[APNsCommand]]] = defaultdi
 
 COMMAND_MAP.default_factory = lambda: register_command(-0x01, Direction.BIDIRECTIONAL)(UnknownCommand)
 
+_T_co = TypeVar("_T_co", covariant=True, bound=type[APNsCommand])
 _FIELDS: Final = "__dataclass_fields__"
 
 Topic: TypeAlias = str | bytes
@@ -59,10 +60,10 @@ Topic: TypeAlias = str | bytes
 logger = getLogger(__name__)
 
 
-def register_command(command_id: int, direction: Direction) -> Callable[[type[APNsCommand]], type[APNsCommand]]:
+def register_command(command_id: int, direction: Direction) -> Callable[_T_co, _T_co]:
     """Register an ``APNsCommand`` subclass with the command registry."""
 
-    def wrapper(cls: type[APNsCommand]) -> type[APNsCommand]:
+    def wrapper(cls: _T_co) -> _T_co:
         """Set the command's command ID and register it with the command registry."""
         cls.command_id = command_id
 
