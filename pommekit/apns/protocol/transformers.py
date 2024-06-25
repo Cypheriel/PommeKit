@@ -77,7 +77,7 @@ class BitMask(IntFlag):
 
     def to_bytes(
         self: Self,
-        length: SupportsIndex = 1,
+        length: SupportsIndex = 4,
         byteorder: Literal["little", "big"] = "big",
         *,
         signed: bool = False,

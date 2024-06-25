@@ -78,7 +78,6 @@ class EventListener:
         *args: ...,
         **kwargs: ...,
     ) -> None:
-
         logger.debug(f"Triggering {event_type.name} event {_get_identifier_name(identifier)}.")
 
         listeners = self._callback_map.get((event_type, identifier))

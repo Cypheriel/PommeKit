@@ -110,7 +110,9 @@ class APNsCommand:
             command_field.name: (
                 command_field.default
                 if command_field.default is not MISSING
-                else command_field.default_factory() if callable(command_field.default_factory) else None
+                else command_field.default_factory()
+                if callable(command_field.default_factory)
+                else None
             )
             for command_field in fields(cls)
             if get_origin(command_field.type) is Annotated
