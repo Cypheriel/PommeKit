@@ -1,12 +1,11 @@
 #  Copyright (C) 2024  Cypheriel
-from __future__ import annotations
-
 import os
+from collections.abc import Generator
 from dataclasses import dataclass
 from getpass import getuser
 from logging import getLogger
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, ClassVar
+from typing import Annotated, ClassVar
 
 import typer
 
@@ -16,9 +15,6 @@ from .util.app_dirs import USER_DATA_DIR
 from .util.device_utils import fetch_device
 from .util.rich_console import console
 from .util.selection import get_selected_device, set_selected_device
-
-if TYPE_CHECKING:
-    from collections.abc import Generator
 
 __ALIAS__ = "ds"
 
@@ -240,7 +236,7 @@ def select(serial_number: SerialArgument = None) -> None:
 @app.callback(no_args_is_help=True, hidden=False)
 def device(
     path: Annotated[
-        Path | None,
+        Path,
         typer.Option(
             "--path",
             "-p",
