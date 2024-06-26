@@ -7,12 +7,11 @@ from __future__ import annotations
 import plistlib
 from functools import lru_cache
 from logging import getLogger
-from typing import Final
 
-from httpx import AsyncClient
+from httpx import Client
 
 logger = getLogger(__name__)
-client = AsyncClient(
+client = Client(
     verify=False,  # noqa: S501
 )
 
@@ -22,9 +21,9 @@ class BagFetchError(Exception):
 
 
 @lru_cache
-async def get_apns_bag() -> dict[str, str]:
+def get_apns_bag() -> dict[str, str]:
     """Fetch Apple's APNs bag."""
-    response = await client.get("https://init.push.apple.com/bag")
+    response = client.get("https://init.push.apple.com/bag")
 
     if not response.is_success:
         msg = f"Failed to fetch APNs bag! Status: {response.status_code}"
@@ -34,9 +33,9 @@ async def get_apns_bag() -> dict[str, str]:
 
 
 @lru_cache
-async def get_ids_bag() -> dict[str, str]:
+def get_ids_bag() -> dict[str, str]:
     """Fetch Apple's IDS bag."""
-    response = await client.get("https://init.ess.apple.com/WebObjects/VCInit.woa/wa/getBag?ix=3")
+    response = client.get("https://init.ess.apple.com/WebObjects/VCInit.woa/wa/getBag?ix=3")
 
     if not response.is_success:
         msg = "Failed to fetch IDS bag!"
@@ -45,10 +44,21 @@ async def get_ids_bag() -> dict[str, str]:
     return plistlib.loads(plistlib.loads(response.content)["bag"])
 
 
-apns_bag: Final = {}
-ids_bag: Final = {}
+class _Bags:
+    @property
+    def apns_bag(self):
+        if not self._apns_bag:
+            self._apns_bag = get_apns_bag()
 
+        return self._apns_bag
 
-async def _fetch_bags() -> None:
-    apns_bag.update(await get_apns_bag())
-    ids_bag.update(await get_ids_bag())
+    @property
+    def ids_bag(self):
+        if not self._ids_bag:
+            self._ids_bag = get_ids_bag()
+
+        return self._ids_bag
+
+    def __init__(self):
+        self._apns_bag = {}
+        self._ids_bag = {}

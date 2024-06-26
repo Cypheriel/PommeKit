@@ -13,6 +13,7 @@ from rich.logging import RichHandler
 from ._cli import device
 from ._cli.util.app_dirs import USER_LOG_DIR
 from ._cli.util.rich_console import console
+from ._util.aio import run_async
 
 app = typer.Typer()
 app.add_typer(device.app)
@@ -38,7 +39,8 @@ def _setup_logging(level: int) -> None:
 
 
 @app.callback(no_args_is_help=True)
-def main(
+@run_async
+async def main(
     *,
     verbose: Annotated[
         bool,

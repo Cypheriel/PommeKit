@@ -38,7 +38,7 @@ from httpx import AsyncClient
 from .._util.crypto import b64encoded_der, construct_identity_key, randbytes
 from .._util.exponential_backoff import ExponentialBackoff
 from ..apns.protocol.transformers import PUSH_TOKEN_TRANSFORMER, Nonce
-from ..bags import ids_bag
+from ..bags import _Bags
 from ..gsa import AUStatus, GSAClient
 from ..status_codes import AppleStatusCode
 
@@ -48,19 +48,6 @@ if TYPE_CHECKING:
 
     from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePrivateKey
     from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
-
-AUTHENTICATE_USER_KEY: Final = "vc-profile-authenticate"
-AUTHENTICATE_USER_URL: Final = ids_bag[AUTHENTICATE_USER_KEY]
-
-AUTHENTICATE_DEVICE_KEY: Final = "id-authenticate-ds-id"
-AUTHENTICATE_DEVICE_URL: Final = ids_bag[AUTHENTICATE_DEVICE_KEY]
-
-GET_HANDLES_KEY: Final = "id-get-handles"
-GET_HANDLES_URL: Final = ids_bag[GET_HANDLES_KEY]
-
-REGISTER_DEVICE_KEY: Final = "id-register"
-REGISTER_DEVICE_URL: Final[str] = ids_bag[REGISTER_DEVICE_KEY]
-
 
 logger = logging.getLogger(__name__)
 
@@ -175,6 +162,19 @@ class IDSUser:
 
         self._auth_backoff = ExponentialBackoff(base_delay=4, max_retries=12)
 
+        bags = _Bags()
+        self.AUTHENTICATE_USER_KEY: Final = "vc-profile-authenticate"
+        self.AUTHENTICATE_USER_URL: Final = bags.ids_bag[self.AUTHENTICATE_USER_KEY]
+
+        self.AUTHENTICATE_DEVICE_KEY: Final = "id-authenticate-ds-id"
+        self.AUTHENTICATE_DEVICE_URL: Final = bags.ids_bag[self.AUTHENTICATE_DEVICE_KEY]
+
+        self.GET_HANDLES_KEY: Final = "id-get-handles"
+        self.GET_HANDLES_URL: Final = bags.ids_bag[self.GET_HANDLES_KEY]
+
+        self.REGISTER_DEVICE_KEY: Final = "id-register"
+        self.REGISTER_DEVICE_URL: Final[str] = bags.ids_bag[self.REGISTER_DEVICE_KEY]
+
     def _ensure_random_credentials(self: Self) -> None:
         """Ensure that random credentials are generated if they are not already present."""
         if self.private_key is None:
@@ -253,9 +253,9 @@ class IDSUser:
             "password": f"{password.strip()}{two_factor_code.strip()}",
         }
 
-        self.log(logging.DEBUG, f"Authenticating through IDS via <{AUTHENTICATE_USER_URL}>.")
+        self.log(logging.DEBUG, f"Authenticating through IDS via <{self.AUTHENTICATE_USER_URL}>.")
 
-        response = await self._client.post(AUTHENTICATE_USER_URL, content=plistlib.dumps(data))
+        response = await self._client.post(self.AUTHENTICATE_USER_URL, content=plistlib.dumps(data))
         response_data = plistlib.loads(response.content)
         status_code = AppleStatusCode(response_data.get("status"))
 
@@ -354,7 +354,7 @@ class IDSUser:
             },
         )
 
-        response = await self._client.post(AUTHENTICATE_DEVICE_URL, content=payload)
+        response = await self._client.post(self.AUTHENTICATE_DEVICE_URL, content=payload)
         response_data = plistlib.loads(response.content)
 
         status_code = AppleStatusCode(response_data.get("status"))
@@ -384,11 +384,11 @@ class IDSUser:
             msg = "Push token is required to fetch handles."
             raise ValueError(msg)
 
-        logger.debug(f"Fetching handles from {GET_HANDLES_URL}.")
+        logger.debug(f"Fetching handles from {self.GET_HANDLES_URL}.")
 
         response = await self._client.get(
-            GET_HANDLES_URL,
-            headers=self._generate_auth_headers(GET_HANDLES_KEY),
+            self.GET_HANDLES_URL,
+            headers=self._generate_auth_headers(self.GET_HANDLES_KEY),
         )
 
         response_data = plistlib.loads(response.content)
@@ -483,12 +483,12 @@ class IDSUser:
         user_agent = f"com.apple.invitation-registration [Mac OS X,{os_version},{build_version},{product_type}]"
 
         response = await self._client.post(
-            REGISTER_DEVICE_URL,
+            self.REGISTER_DEVICE_URL,
             content=payload,
             headers={
                 "User-Agent": user_agent,
                 "x-auth-user-id-0": self.profile_id,
-                **self._generate_auth_headers(REGISTER_DEVICE_KEY, payload, auth_suffix_number=0),
+                **self._generate_auth_headers(self.REGISTER_DEVICE_KEY, payload, auth_suffix_number=0),
             },
         )
 
