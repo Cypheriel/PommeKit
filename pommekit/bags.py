@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import plistlib
 from functools import lru_cache
 from logging import getLogger
@@ -24,7 +25,9 @@ class BagFetchError(Exception):
 @lru_cache
 async def get_apns_bag() -> dict[str, str]:
     """Fetch Apple's APNs bag."""
-    response = await client.get("https://init.push.apple.com/bag")
+    response = await client.get(
+        "https://init.push.apple.com/bag",
+    )
 
     if not response.is_success:
         msg = f"Failed to fetch APNs bag! Status: {response.status_code}"
@@ -52,3 +55,6 @@ ids_bag: Final = {}
 async def _fetch_bags() -> None:
     apns_bag.update(await get_apns_bag())
     ids_bag.update(await get_ids_bag())
+
+
+asyncio.run(_fetch_bags())
