@@ -60,7 +60,7 @@ Topic: TypeAlias = str | bytes
 logger = getLogger(__name__)
 
 
-def register_command(command_id: int, direction: Direction) -> Callable[_T_co, _T_co]:
+def register_command(command_id: int, direction: Direction) -> Callable[[_T_co], _T_co]:
     """Register an ``APNsCommand`` subclass with the command registry."""
 
     def wrapper(cls: _T_co) -> _T_co:

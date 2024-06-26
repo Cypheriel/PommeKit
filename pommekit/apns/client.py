@@ -8,14 +8,10 @@ from __future__ import annotations
 import asyncio
 from asyncio import Event, IncompleteReadError
 from logging import getLogger
-from pathlib import Path
 from typing import TYPE_CHECKING, Self
 
 from cryptography.hazmat.primitives.asymmetric.padding import PKCS1v15
-from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 from cryptography.hazmat.primitives.hashes import SHA1
-from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat, load_der_private_key
-from cryptography.x509 import Certificate, load_der_x509_certificate
 
 from .._util.event_listener import EventType
 from ..apns.listener import APNsListener
@@ -30,70 +26,14 @@ from ..apns.protocol.transformers import TOPIC_TRANSFORMER, Interface, Nonce, St
 from ..apns.streams import APNsClientStream
 
 if TYPE_CHECKING:
-    from os import PathLike
+    from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
+    from cryptography.x509 import Certificate
 
 logger = getLogger(__name__)
 
 
 class APNsClient(APNsListener):
     """High-level APNs client based on the APNs event listener."""
-
-    @property
-    def push_key(self: APNsClient) -> RSAPrivateKey | None:
-        """The private push key used for the APNs connection."""
-        return self._push_key
-
-    @push_key.setter
-    def push_key(self: APNsClient, value: RSAPrivateKey | None) -> None:
-        """Set the private push key used for the APNs connection and save it to the save path if available."""
-        if value is not None and not isinstance(value, RSAPrivateKey):
-            msg = f"Expected RSAPrivateKey, got {value.__class__.__name__} instead."
-            raise TypeError(msg)
-
-        logger.debug(f"Setting push key: {value}")
-
-        self._push_key = value
-        if self._push_key is not None and self.save_path is not None:
-            logger.debug(f"Saving push key to {self.save_path}")
-            self.save()
-
-    @property
-    def push_cert(self: APNsClient) -> Certificate | None:
-        """The push certificate used for the APNs connection."""
-        return self._push_cert
-
-    @push_cert.setter
-    def push_cert(self: APNsClient, value: Certificate | None) -> None:
-        """Set the push certificate used for the APNs connection and save it to the save path if available."""
-        if value is not None and not isinstance(value, Certificate):
-            msg = f"Expected Certificate, got {value.__class__.__name__} instead."
-            raise TypeError(msg)
-
-        logger.debug(f"Setting push certificate: {value}")
-
-        self._push_cert = value
-        if self._push_cert is not None and self.save_path is not None:
-            logger.debug(f"Saving push certificate to {self.save_path}")
-            self.save()
-
-    @property
-    def push_token(self: APNsClient) -> str | None:
-        """The push token used for the APNs connection."""
-        return self._push_token
-
-    @push_token.setter
-    def push_token(self: Self, value: str | None) -> None:
-        """Set the push token used for the APNs connection and save it to the save path if available."""
-        if value is not None and not isinstance(value, str):
-            msg = f"Expected str, got {value.__class__.__name__} instead."
-            raise TypeError(msg)
-
-        logger.debug(f"Setting push token: {value}")
-
-        self._push_token = value
-        if self._push_token is not None and self.save_path is not None:
-            logger.debug(f"Saving push token to {self.save_path}")
-            self.save()
 
     def __init__(
         self: Self,
@@ -109,7 +49,6 @@ class APNsClient(APNsListener):
         nonce: Nonce = None,
         courier_address: str | None = None,
         courier_port: int = 5223,
-        save_path: PathLike | None = None,
     ) -> None:
         """
         Initialize the APNs client.
@@ -126,7 +65,6 @@ class APNsClient(APNsListener):
         :param nonce: The nonce used in creation of the signature
         :param courier_address: The address of the APNs courier
         :param courier_port: The courier port
-        :param save_path: The path to save the push key, push certificate, and push token
         """
         super().__init__()
 
@@ -135,10 +73,6 @@ class APNsClient(APNsListener):
 
         self.courier_address = courier_address
         self.courier_port = courier_port
-
-        self._push_key: RSAPrivateKey | None = None
-        self._push_cert: Certificate | None = None
-        self._push_token: str | None = None
 
         self.push_key = push_key
         self.push_cert = push_cert
@@ -151,13 +85,6 @@ class APNsClient(APNsListener):
         self.os_build = os_build
         self.hardware_version = hardware_version
         self.nonce = nonce or Nonce()
-
-        self.save_path = (
-            Path(save_path)
-            if save_path is not None or (save_path is not None and not isinstance(save_path, Path))
-            else None
-        )
-        logger.debug(f"APNs credentials will be saved to {self.save_path}")
 
         self.signature: bytes | None = None
         self.on_connected_event: Event = Event()
@@ -250,54 +177,3 @@ class APNsClient(APNsListener):
         if self._apns_stream is not None:
             await self._apns_stream.close()
             self._apns_stream = None
-
-    @classmethod
-    def load(
-        cls: type[Self],
-        path: PathLike,
-        os_version: str | None,
-        os_build: str | None,
-        hardware_version: str | None,
-    ) -> Self:
-        """Load the push key, push certificate, and push token from the save path."""
-        path = Path(path) if not isinstance(path, Path) else path
-
-        paths = {
-            "push_key": (path / "push.key"),
-            "push_cert": (path / "push.crt"),
-            "push_token": (path / "push_token.txt"),
-        }
-
-        if not all(path.exists() for path in paths.values()):
-            msg = "One or more required files are missing."
-            raise FileNotFoundError(msg)
-
-        instance = cls(
-            os_version=os_version,
-            os_build=os_build,
-            hardware_version=hardware_version,
-            save_path=path,
-        )
-
-        instance.push_key = load_der_private_key(paths["push_key"].read_bytes(), password=None)
-        instance.push_cert = load_der_x509_certificate(paths["push_cert"].read_bytes())
-        instance.push_token = paths["push_token"].read_text()
-
-        return instance
-
-    def save(self: Self) -> None:
-        """Save the push key, push certificate, and push token to the save path."""
-        if self.push_key is not None:
-            (self.save_path / "push.key").write_bytes(
-                self.push_key.private_bytes(
-                    encoding=Encoding.DER,
-                    format=PrivateFormat.TraditionalOpenSSL,
-                    encryption_algorithm=NoEncryption(),
-                ),
-            )
-
-        if self.push_cert is not None:
-            (self.save_path / "push.crt").write_bytes(self.push_cert.public_bytes(Encoding.DER))
-
-        if self.push_token is not None:
-            (self.save_path / "push_token.txt").write_text(self.push_token)

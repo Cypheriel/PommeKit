@@ -10,7 +10,7 @@ import plistlib
 from base64 import b64decode, b64encode
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from enum import Enum
+from enum import Enum, StrEnum
 from hashlib import sha256
 from logging import getLogger
 from pathlib import Path
@@ -18,6 +18,8 @@ from typing import TYPE_CHECKING, Self
 from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
+from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat, load_pem_private_key
+from cryptography.x509 import load_pem_x509_certificate
 from httpx import AsyncClient
 from websockets import WebSocketClientProtocol, connect
 
@@ -36,7 +38,7 @@ LOOKUP_URL = "https://gsa.apple.com/grandslam/GsService2/lookup"
 logger = getLogger()
 
 
-class OperatingSystem(Enum):
+class OperatingSystem(StrEnum):
     """Enum containing the operating systems supported by Apple."""
 
     IOS = "iOS"
@@ -44,6 +46,13 @@ class OperatingSystem(Enum):
     WATCHOS = "watchOS"
     TVOS = "tvOS"
     WINDOWS = "Windows"
+
+    @classmethod
+    def _missing_(cls: type[Self], value: str) -> Self:
+        for member in cls:
+            if value.lower() == member.value.lower():
+                return member
+        return None
 
 
 class AnisetteV3Provider(Enum):
@@ -88,6 +97,11 @@ class Device:
         """Whether the device requires provisioning."""
         return len(self._get_header_values()) != len(self.anisette_headers)
 
+    @property
+    def requires_push_credentials(self: Self) -> bool:
+        """Whether the device requires push credentials."""
+        return self.apns_client.push_key is None or self.apns_client.push_cert is None
+
     def __post_init__(self: Self) -> None:
         """Post-initialize the device object."""
         if self.identifier is None:
@@ -98,32 +112,17 @@ class Device:
             logger.debug(f"Loading device info from {self._save_dir}")
 
         if isinstance(self._save_dir, Path):
-            self._save_dir /= self.hardware_serial
+            if self._save_dir.name != self.hardware_serial:
+                self._save_dir /= self.hardware_serial
 
             self._users_dir = self._save_dir / "Users"
             self._users_dir.mkdir(parents=True, exist_ok=True)
 
-            self._apns_credentials_dir = self._save_dir / "APNs Credentials"
-            self._apns_credentials_dir.mkdir(parents=True, exist_ok=True)
-
-        if self.apns_client is None:
-            try:
-                self.apns_client = APNsClient.load(
-                    self._apns_credentials_dir,
-                    self.os_version,
-                    self.os_build,
-                    self.hardware_version,
-                )
-                self.requires_push_credentials: bool = False
-
-            except FileNotFoundError:
-                self.apns_client = APNsClient(
-                    os_version=self.os_version,
-                    os_build=self.os_build,
-                    hardware_version=self.hardware_version,
-                    save_path=self._apns_credentials_dir,
-                )
-                self.requires_push_credentials: bool = True
+            self.apns_client = APNsClient(
+                os_version=self.os_version,
+                os_build=self.os_build,
+                hardware_version=self.hardware_version,
+            )
 
         for user_path in self._users_dir.iterdir():
             if user_path.is_dir():
@@ -150,8 +149,6 @@ class Device:
         self.finish_provisioning_url: str | None = None
         self.provisioning_complete: bool = False
 
-        decoded_uuid = b64decode(self.identifier)
-        logger.debug(f"{decoded_uuid = }, {len(decoded_uuid) = }")
         self.client.headers.update(
             {
                 "Content-Type": "text/x-xml-plist",
@@ -235,25 +232,6 @@ class Device:
                 await self._fetch_machine_headers()
                 logger.info("Provisioning complete!")
 
-    async def start_provisioning(self: Self) -> None:
-        """Start the provisioning process."""
-        await self._fetch_client_info()
-        logger.debug(f"{self.client.headers = }")
-        await self._fetch_provisioning_urls()
-
-        provider_url = replace_url(self.provider_url, path="v3/provisioning_session", scheme="wss")
-
-        logger.debug(f"Starting provisioning via provider {provider_url}")
-
-        async with connect(provider_url) as ws:
-            while self.provisioning_complete is False:
-                response = await ws.recv()
-                result = json.loads(response)
-                logger.debug(f"Received response: {result}")
-                await self._process_response(ws, result)
-
-        self.save()
-
     def _get_header_values(self: Self) -> dict[str, str]:
         """Get the header values for the Anisette headers."""
         decoded_uuid = b64decode(self.identifier)
@@ -272,7 +250,24 @@ class Device:
             "X-Mme-Device-Id": str(UUID(bytes=decoded_uuid)).upper(),
         }
 
-    async def provision_apns(self: Self) -> None:
+    async def start_provisioning(self: Self) -> None:
+        """Start the provisioning process."""
+        await self._fetch_client_info()
+        logger.debug(f"{self.client.headers = }")
+        await self._fetch_provisioning_urls()
+
+        provider_url = replace_url(self.provider_url, path="v3/provisioning_session", scheme="wss")
+
+        logger.debug(f"Starting provisioning via provider {provider_url}")
+
+        async with connect(provider_url) as ws:
+            while self.provisioning_complete is False:
+                response = await ws.recv()
+                result = json.loads(response)
+                logger.debug(f"Received response: {result}")
+                await self._process_response(ws, result)
+
+    async def get_push_credentials(self: Self) -> None:
         """Provision the APNs client by requesting a push certificate."""
         if not self.requires_push_credentials:
             return
@@ -291,7 +286,6 @@ class Device:
                 "UniqueDeviceID": str(UUID(bytes=b64decode(self.identifier))).upper(),
             },
         )
-        self.apns_client.save()
 
     def get_user(self: Self, username: str) -> IDSUser | None:
         """Get a user by their Apple ID."""
@@ -346,7 +340,7 @@ class Device:
         await user.register_device(
             self.name,
             validation_data_provider(),
-            self.operating_system.value,
+            self.operating_system,
             self.hardware_version,
             self.os_version,
             self.os_build,
@@ -397,13 +391,24 @@ class Device:
         for user in self.ids_users:
             user.write_credentials(self._users_dir)
 
+        if (push_key := self.apns_client.push_key) is not None:
+            (self._save_dir / "push.key").write_bytes(
+                push_key.private_bytes(Encoding.PEM, PrivateFormat.TraditionalOpenSSL, NoEncryption()),
+            )
+
+        if (push_cert := self.apns_client.push_cert) is not None:
+            (self._save_dir / "push.crt").write_bytes(push_cert.public_bytes(Encoding.PEM))
+
+        if (push_token := self.apns_client.push_token) is not None:
+            (self._save_dir / "push_token.txt").write_text(push_token)
+
     @classmethod
-    def load(cls: type[Self], path: PathLike, serial: str) -> Self:
+    def load(cls: type[Self], path: PathLike) -> Self:
         """Load a device from the specified directory."""
         path = Path(path) if not isinstance(path, Path) else path
-        data = json.loads((path / serial / "device_info.json").read_text())
+        data = json.loads((path / "device_info.json").read_text())
 
-        return cls(
+        instance = cls(
             name=data.get("name"),
             operating_system=OperatingSystem(data.get("operating_system")),
             os_version=data.get("os_version"),
@@ -419,3 +424,14 @@ class Device:
             routing_info=data.get("routing_info"),
             save_path=path,
         )
+
+        if (push_key_path := path / "push.key").is_file():
+            instance.apns_client.push_key = load_pem_private_key(push_key_path.read_bytes(), password=None)
+
+        if (push_cert_path := path / "push.crt").is_file():
+            instance.apns_client.push_cert = load_pem_x509_certificate(push_cert_path.read_bytes())
+
+        if (push_token_path := path / "push_token.txt").is_file():
+            instance.apns_client.push_token = push_token_path.read_text()
+
+        return instance
