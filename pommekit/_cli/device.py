@@ -1,10 +1,11 @@
 #  Copyright (C) 2024  Cypheriel
 import os
+from base64 import b64encode
 from collections.abc import Generator
 from getpass import getuser
 from logging import getLogger
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Optional
 
 import typer
 
@@ -68,8 +69,9 @@ def list_() -> None:
 @app.command(help="Get information about a device.")
 @app.command(name="if", hidden=True)
 def info(
-    serial_number: SerialArgument = CLIOptions.selected_device,
+    serial_number: SerialArgument = None,
 ) -> None:
+    serial_number = serial_number or CLIOptions.selected_device
     if serial_number is None:
         typer.echo("No device selected. Specify a device using `--serial-number` or the `device sel` command", err=True)
         raise typer.Exit(1)
@@ -79,7 +81,7 @@ def info(
         f"Device: {dev.device_info.name}\n"
         f"Serial Number: {dev.machine_data.serial_number}\n"
         f"UID: {dev.machine_data.identifier}\n"
-        f"Model Version: {dev.device_info.model}\n"
+        f"Model Version: {dev.device_info.model_number}\n"
         f"Product Version: {dev.device_info.operating_system_version}\n"
         f"Build Version: {dev.device_info.operating_system_build}\n"
         f"Device Class: {dev.device_info.operating_system}\n",
@@ -106,6 +108,24 @@ async def add(
             autocompletion=list_devices,
         ),
     ] = "WindowSerial",
+    udid: Annotated[
+        Optional[str],
+        typer.Option(
+            help="The UDID of the device.",
+        ),
+    ] = None,
+    imei: Annotated[
+        Optional[str],
+        typer.Option(
+            help="The IMEI of the device.",
+        ),
+    ] = None,
+    meid: Annotated[
+        Optional[str],
+        typer.Option(
+            help="The MEID of the device.",
+        ),
+    ] = None,
     operating_system: Annotated[
         OperatingSystem,
         typer.Option(
@@ -134,6 +154,13 @@ async def add(
             help="The hardware version of the device.",
         ),
     ] = "windows1,1",
+    model_number: Annotated[
+        Optional[str],
+        typer.Option(
+            prompt=True,
+            help="The model number of the device.",
+        ),
+    ] = None,
     *,
     skip_provisioning: Annotated[
         bool,
@@ -147,16 +174,30 @@ async def add(
     if fetch_device(CLIOptions.device_path, serial_number) is not None:
         typer.confirm("Device already exists... Overwrite?", abort=True)
 
+    if operating_system == OperatingSystem.IOS:
+        if udid is None:
+            udid = typer.prompt("UDID")
+        if imei is None:
+            imei = typer.prompt("IMEI")
+        if meid is None:
+            meid = typer.prompt("MEID")
+        if model_number is None:
+            model_number = typer.prompt("Model Number")
+
     dev = Device(
         DeviceInfoComponent(
             name=device_name,
             operating_system=operating_system,
             operating_system_version=os_version,
             operating_system_build=os_build,
-            model=hardware_version,
+            product_type=hardware_version,
+            model_number=model_number,
         ),
         MachineDataComponent(
             serial_number=serial_number,
+            identifier=b64encode(udid).decode(),
+            imei=imei,
+            meid=meid,
         ),
         APNsCredentialsComponent(),
     )
@@ -192,8 +233,22 @@ async def remove() -> None: ...
 @app.command(name="prov", hidden=True)
 @run_async
 async def provision(
-    serial_number: SerialArgument,
+    serial_number: SerialArgument = CLIOptions.selected_device,
     *,
+    skip_anisette: Annotated[
+        bool,
+        typer.Option(
+            "--skip-anisette",
+            help="Skip Anisette provisioning.",
+        ),
+    ] = False,
+    skip_push: Annotated[
+        bool,
+        typer.Option(
+            "--skip-push",
+            help="Skip push certificate provisioning.",
+        ),
+    ] = False,
     force: Annotated[
         bool,
         typer.Option(
@@ -203,6 +258,7 @@ async def provision(
         ),
     ] = False,
 ) -> None:
+    serial_number = serial_number or CLIOptions.selected_device
     dev = fetch_device(CLIOptions.device_path, serial_number)
 
     if force is True:
@@ -211,13 +267,13 @@ async def provision(
         )
 
     required_provisioning = False
-    if dev.machine_data.requires_provisioning or force:
+    if not skip_anisette and (dev.machine_data.requires_provisioning or force):
         required_provisioning = True
 
         anisette_provider = AnisetteV3Provider(dev.machine_data)
         await anisette_provider.provision()
 
-    if dev.apns_credentials.requires_provisioning or force:
+    if not skip_push and (dev.apns_credentials.requires_provisioning or force):
         required_provisioning = True
 
         push_key, push_cert = await request_push_certificate(dev.device_info, dev.machine_data)

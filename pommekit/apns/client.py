@@ -113,7 +113,7 @@ class APNsClient(APNsListener):
             carrier=self.carrier,
             os_version=self._device_info_provider.operating_system_version,
             os_build=self._device_info_provider.operating_system_build,
-            hardware_version=self._device_info_provider.model,
+            hardware_version=self._device_info_provider.model_number,
             certificate=push_cert,
             nonce=(nonce := Nonce()),
             signature=b"\x01\x01" + push_key.sign(bytes(nonce), PKCS1v15(), SHA1()),  # noqa: S303,
@@ -149,7 +149,7 @@ class APNsClient(APNsListener):
                         connection_method="WiFi",
                         os_version=self._device_info_provider.operating_system_version,
                         os_build=self._device_info_provider.operating_system_build,
-                        hardware_version=self._device_info_provider.model,
+                        hardware_version=self._device_info_provider.model_number,
                     ),
                 )
                 return

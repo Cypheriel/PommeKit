@@ -97,12 +97,20 @@ class DeviceInfoComponent(DeviceDataComponent):
         self._operating_system_build_provider = value
 
     @property
-    def model(self: Self) -> str | None:
-        return _unwrap_provider(self._model_provider)
+    def product_type(self: Self) -> str | None:
+        return _unwrap_provider(self._product_type_provider)
 
-    @model.setter
-    def model(self: Self, value: str) -> None:
-        self._model_provider = value
+    @product_type.setter
+    def product_type(self: Self, value: str) -> None:
+        self._product_type_provider = value
+
+    @property
+    def model_number(self: Self) -> str | None:
+        return _unwrap_provider(self._model_number_provider)
+
+    @model_number.setter
+    def model_number(self: Self, value: str) -> None:
+        self._model_number_provider = value
 
     def __init__(
         self: Self,
@@ -111,13 +119,15 @@ class DeviceInfoComponent(DeviceDataComponent):
         operating_system: Callable[[], OperatingSystem | None] | OperatingSystem | None = None,
         operating_system_version: Callable[[], str | None] | str | None = None,
         operating_system_build: Callable[[], str | None] | str | None = None,
-        model: Callable[[], str | None] | str | None = None,
+        product_type: Callable[[], str | None] | str | None = None,
+        model_number: Callable[[], str | None] | str | None = None,
     ) -> None:
         self._name_provider = name
         self._operating_system_provider = operating_system
         self._operating_system_version_provider = operating_system_version
         self._operating_system_build_provider = operating_system_build
-        self._model_provider = model
+        self._product_type_provider = product_type
+        self._model_number_provider = model_number
 
     def as_dict(self: Self) -> dict[str, str]:
         return {
@@ -125,7 +135,8 @@ class DeviceInfoComponent(DeviceDataComponent):
             "operating_system": self.operating_system,
             "operating_system_version": self.operating_system_version,
             "operating_system_build": self.operating_system_build,
-            "model": self.model,
+            "model_number": self.model_number,
+            "product_type": self.product_type,
         }
 
     @classmethod
@@ -135,7 +146,8 @@ class DeviceInfoComponent(DeviceDataComponent):
             operating_system=data.get("operating_system"),
             operating_system_version=data.get("operating_system_version"),
             operating_system_build=data.get("operating_system_build"),
-            model=data.get("model"),
+            model_number=data.get("model_number"),
+            product_type=data.get("product_type"),
         )
 
 
@@ -159,9 +171,14 @@ class ProvidesOperatingSystemBuild(Protocol):
     def operating_system_build(self: Self) -> str | None: ...
 
 
-class ProvidesModel(Protocol):
+class ProvidesProductType(Protocol):
     @property
-    def model(self: Self) -> str | None: ...
+    def product_type(self: Self) -> str | None: ...
+
+
+class ProvidesModelNumber(Protocol):
+    @property
+    def model_number(self: Self) -> str | None: ...
 
 
 class ProvidesDeviceInfo(
@@ -169,7 +186,8 @@ class ProvidesDeviceInfo(
     ProvidesOperatingSystem,
     ProvidesOperatingSystemVersion,
     ProvidesOperatingSystemBuild,
-    ProvidesModel,
+    ProvidesProductType,
+    ProvidesModelNumber,
 ): ...
 
 
@@ -189,6 +207,22 @@ class MachineDataComponent(DeviceDataComponent):
     @serial_number.setter
     def serial_number(self: Self, value: str | None) -> None:
         self._serial_number_provider = value
+
+    @property
+    def imei(self: Self) -> str | None:
+        return _unwrap_provider(self._imei_provider)
+
+    @imei.setter
+    def imei(self: Self, value: str | None) -> None:
+        self._imei_provider = value
+
+    @property
+    def meid(self: Self) -> str | None:
+        return _unwrap_provider(self._meid_provider)
+
+    @meid.setter
+    def meid(self: Self, value: str | None) -> None:
+        self._meid_provider = value
 
     @property
     def identifier(self: Self) -> str | None:
@@ -270,12 +304,14 @@ class MachineDataComponent(DeviceDataComponent):
 
     @property
     def requires_provisioning(self: Self) -> bool:
-        return None in self.as_dict().values()
+        return set(self.missing.keys()) != {"imei", "meid"}
 
     def __init__(
         self: Self,
         *,
         serial_number: Callable[[], str | None] | str | None = None,
+        imei: Callable[[], str | None] | str | None = None,
+        meid: Callable[[], str | None] | str | None = None,
         identifier: Callable[[], str | None] | str | None = None,
         user_agent: Callable[[], str | None] | str | None = None,
         client_info: Callable[[], str | None] | str | None = None,
@@ -285,6 +321,8 @@ class MachineDataComponent(DeviceDataComponent):
         routing_info: Callable[[], str | None] | str | None = None,
     ) -> None:
         self._serial_number_provider = serial_number
+        self._imei_provider = imei
+        self._meid_provider = meid
         self._identifier_provider = identifier
         self._user_agent_provider = user_agent
         self._client_info_provider = client_info
@@ -297,6 +335,8 @@ class MachineDataComponent(DeviceDataComponent):
         return {
             "serial_number": self.serial_number,
             "identifier": self.identifier,
+            "imei": self.imei,
+            "meid": self.meid,
             "user_agent": self.user_agent,
             "client_info": self.client_info,
             "adi_pb": self.adi_pb,
@@ -310,6 +350,8 @@ class MachineDataComponent(DeviceDataComponent):
         return cls(
             serial_number=data.get("serial_number"),
             identifier=data.get("identifier"),
+            imei=data.get("imei"),
+            meid=data.get("meid"),
             user_agent=data.get("user_agent"),
             client_info=data.get("client_info"),
             adi_pb=data.get("adi_pb"),
@@ -322,6 +364,16 @@ class MachineDataComponent(DeviceDataComponent):
 class ProvidesSerialNumber(Protocol):
     @property
     def serial_number(self: Self) -> str | None: ...
+
+
+class ProvidesIMEI(Protocol):
+    @property
+    def imei(self: Self) -> str | None: ...
+
+
+class ProvidesMEID(Protocol):
+    @property
+    def meid(self: Self) -> str | None: ...
 
 
 class ProvidesIdentifier(Protocol):
@@ -361,6 +413,8 @@ class ProvidesRoutingInfo(Protocol):
 
 class ProvidesMachineData(
     ProvidesSerialNumber,
+    ProvidesIMEI,
+    ProvidesMEID,
     ProvidesIdentifier,
     ProvidesUserAgent,
     ProvidesClientInfo,
