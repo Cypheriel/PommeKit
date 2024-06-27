@@ -111,9 +111,11 @@ preview = true
 ]
 "pommekit/_cli/**/*" = [
     "PLR0917",
+    "FA100",
 ]
 "pommekit/__main__.py" = [
     "PLR0917",
+    "FA100",
 ]
 
 

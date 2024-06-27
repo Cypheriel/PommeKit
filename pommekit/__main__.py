@@ -3,17 +3,17 @@
 
 import logging
 from datetime import datetime
+from pathlib import Path
 from sys import stderr
-from typing import Annotated
+from typing import Annotated, Optional
 
 import typer
 from rich.console import Console
 from rich.logging import RichHandler
 
-from ._cli import device
+from ._cli import CLIOptions, device
 from ._cli.util.app_dirs import USER_LOG_DIR
 from ._cli.util.rich_console import console
-from ._util.aio import run_async
 
 app = typer.Typer()
 app.add_typer(device.app)
@@ -39,9 +39,17 @@ def _setup_logging(level: int) -> None:
 
 
 @app.callback(no_args_is_help=True)
-@run_async
-async def main(
+def main(
     *,
+    path: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--path",
+            "-p",
+            help="The path to the directory containing PommeKit data.",
+            show_default=f"{CLIOptions.save_path}",
+        ),
+    ] = None,
     verbose: Annotated[
         bool,
         typer.Option("--verbose", "-v", help="Enable verbose logging."),
@@ -60,6 +68,8 @@ async def main(
     ] = False,
 ) -> None:
     """PommeKit - Python library with various tools for interacting with Apple services and APIs."""
+    CLIOptions.save_path = path
+
     if (verbose, quiet, silent).count(True) > 1:
         typer.echo("Can only enable one of --verbose, --quiet, or --silent.", err=True)
         raise typer.Abort

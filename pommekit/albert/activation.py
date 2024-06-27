@@ -7,9 +7,11 @@ from __future__ import annotations
 
 import plistlib
 import re
+from base64 import b64decode
 from importlib import resources
 from logging import getLogger
 from typing import TYPE_CHECKING, Final, Literal, TypedDict
+from uuid import UUID, uuid4
 
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.asymmetric.padding import PKCS1v15
@@ -23,12 +25,22 @@ from ..albert.device_csr import generate_device_csr
 if TYPE_CHECKING:
     from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 
+    from ..device import DeviceInfoComponent, MachineDataComponent, ProvidesDeviceInfo, ProvidesMachineData
+
 _RESOURCE_ROOT: Final = resources.files(__package__)
 FAIRPLAY_PRIVATE_KEY = load_pem_private_key((_RESOURCE_ROOT / "fairplay.key").read_bytes(), password=None)
 FAIRPLAY_CERT_CHAIN = (_RESOURCE_ROOT / "fairplay-chain.crt").read_bytes()
 
 ACTIVATION_URL: Final = "https://albert.apple.com/deviceservices/deviceActivation?device=MacOS"
 CERTIFICATE_RESPONSE_PATTERN: Final = re.compile(r"<Protocol>(.*)</Protocol>")
+
+
+class AlbertError(BaseException):
+    """Generic exception raised when an Albert request fails."""
+
+    def __init__(self, response_text: str) -> None:
+        """Initialize the exception with the response text."""
+        super().__init__(f"Failed to retrieve push certificate from Albert. {response_text = }")
 
 
 class ActivationInfoContent(TypedDict):
@@ -38,10 +50,10 @@ class ActivationInfoContent(TypedDict):
     ActivationState: Literal["Unactivated"]
     DeviceCertRequest: bytes
     DeviceClass: Literal["MacOS", "Windows"]
-    ProductType: str
-    ProductVersion: str
-    BuildVersion: str
-    SerialNumber: str
+    ProductType: str | None
+    ProductVersion: str | None
+    BuildVersion: str | None
+    SerialNumber: str | None
     UniqueDeviceID: str
 
 
@@ -60,59 +72,71 @@ logger = getLogger(__name__)
 
 
 async def request_push_certificate(
-    private_key: RSAPrivateKey | None = None,
-    activation_info_content: ActivationInfoContent | None = None,
-    fairplay_private_key: RSAPrivateKey = FAIRPLAY_PRIVATE_KEY,
-    fairplay_cert_chain: bytes = FAIRPLAY_CERT_CHAIN,
-    http_client: AsyncClient | None = None,
+    device_info: DeviceInfoComponent | ProvidesDeviceInfo,
+    machine_data: MachineDataComponent | ProvidesMachineData,
 ) -> tuple[RSAPrivateKey, Certificate]:
     """
     Request a push certificate from Albert.
 
-    :param private_key:
-    :param activation_info_content: The activation info content to send to Albert.
-    :param fairplay_cert_chain: Optional FairPlay certificate chain override.
-    :param fairplay_private_key: Optional FairPlay private key override.
-    :param http_client: The optional async HTTP _client to use for the request.
     :return: A `tuple` containing the private key and the push certificate.
     """
-    if private_key is None:
-        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    if (product_type := device_info.model) is None:
+        msg = "Device product_type is required for activation."
+        raise ValueError(msg)
 
-    if "DeviceCertRequest" not in activation_info_content:
-        activation_info_content["DeviceCertRequest"] = generate_device_csr(private_key).public_bytes(Encoding.PEM)
+    if (operating_system_version := device_info.operating_system_version) is None:
+        msg = "Device operating system version is required for activation."
+        raise ValueError(msg)
+
+    if (operating_system_build := device_info.operating_system_build) is None:
+        msg = "Device operating system build is required for activation."
+        raise ValueError(msg)
+
+    if (serial_number := machine_data.serial_number) is None:
+        msg = "Device serial number is required for activation."
+        raise ValueError(msg)
+
+    if (identifier := machine_data.identifier) is None:
+        msg = "Device identifier is required for activation."
+        raise ValueError(msg)
+
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+    activation_info_content: ActivationInfoContent = {
+        "ActivationRandomness": str(uuid4()).upper(),
+        "ActivationState": "Unactivated",
+        "DeviceClass": "MacOS",  # NOTE: Other DeviceClass values are currently unknown and undocumented.
+        "DeviceCertRequest": generate_device_csr(private_key).public_bytes(Encoding.PEM),
+        "ProductType": product_type,
+        "ProductVersion": operating_system_version,
+        "BuildVersion": operating_system_build,
+        "SerialNumber": serial_number,
+        "UniqueDeviceID": str(UUID(bytes=b64decode(identifier))).upper(),
+    }
 
     activation_info_xml = plistlib.dumps(activation_info_content)
-    activation_signature = fairplay_private_key.sign(activation_info_xml, PKCS1v15(), SHA1())  # noqa: S303
+    activation_signature = FAIRPLAY_PRIVATE_KEY.sign(activation_info_xml, PKCS1v15(), SHA1())  # noqa: S303
 
     activation_info: ActivationInfo = {
         "ActivationInfoComplete": True,
         "ActivationInfoXML": activation_info_xml,
-        "FairPlayCertChain": fairplay_cert_chain,
+        "FairPlayCertChain": FAIRPLAY_CERT_CHAIN,
         "FairPlaySignature": activation_signature,
     }
 
     payload: ActivationPayload = {"activation-info": plistlib.dumps(activation_info).decode()}
 
-    match http_client:
-        case AsyncClient() | None:
-            async with http_client or AsyncClient() as client:
-                response: Response = await client.post(
-                    ACTIVATION_URL,
-                    data=payload,
-                )
-        case _:
-            msg = "Unsupported HTTP _client provided."
-            raise ValueError(msg)
+    async with AsyncClient() as client:
+        response: Response = await client.post(
+            ACTIVATION_URL,
+            data=payload,
+        )
 
-    if not response.is_success:
-        msg = f"Received non-OK status code: {response.status_code}"
-        raise RuntimeError(msg)
+    if response.is_error:
+        raise AlbertError(response.text)
 
     if (match := CERTIFICATE_RESPONSE_PATTERN.search(response.text)) is None:
-        logger.debug(f"Failed to extract certificate from response: {response.text}")
-        msg = "Failed to extract certificate from response."
-        raise RuntimeError(msg)
+        raise AlbertError(response.text)
 
     protocol_data = plistlib.loads(match.group(1).encode())
     certificate_data = protocol_data["device-activation"]["activation-record"]["DeviceCertificate"]

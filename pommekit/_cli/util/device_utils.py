@@ -14,4 +14,4 @@ def fetch_device(path: Path, serial_number: str) -> Device | None:
     if not path.is_dir():
         return None
 
-    return Device.load(path)
+    return Device.read(path)

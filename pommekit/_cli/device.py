@@ -1,17 +1,18 @@
 #  Copyright (C) 2024  Cypheriel
 import os
 from collections.abc import Generator
-from dataclasses import dataclass
 from getpass import getuser
 from logging import getLogger
 from pathlib import Path
-from typing import Annotated, ClassVar
+from typing import Annotated
 
 import typer
 
 from .._util.aio import run_async
-from ..device import Device, OperatingSystem
-from .util.app_dirs import USER_DATA_DIR
+from ..albert.activation import request_push_certificate
+from ..anisette.v3 import AnisetteV3Provider
+from ..device import APNsCredentialsComponent, Device, DeviceInfoComponent, MachineDataComponent, OperatingSystem
+from . import CLIOptions
 from .util.device_utils import fetch_device
 from .util.rich_console import console
 from .util.selection import get_selected_device, set_selected_device
@@ -20,7 +21,7 @@ __ALIAS__ = "ds"
 
 
 def list_devices(ctx: typer.Context, incomplete: str) -> Generator[str]:
-    path = Path(ctx.params.get("path", os.environ.get("POMMEKIT_DEVICE_PATH", DeviceOptions.save_path)))
+    path = Path(ctx.params.get("path", os.environ.get("POMMEKIT_DEVICE_PATH", CLIOptions.device_path)))
 
     for device_path in path.iterdir():
         if (
@@ -41,29 +42,23 @@ app = typer.Typer()
 logger = getLogger(__name__)
 
 
-@dataclass(kw_only=True)
-class DeviceOptions:
-    save_path: ClassVar[Path] = USER_DATA_DIR / "Devices"
-    selected_device: ClassVar[str | None] = None
-
-
 @app.command(name="list", help="List installed devices.")
 @app.command(name="ls", hidden=True)
 def list_() -> None:
-    if not DeviceOptions.save_path.is_dir():
+    if not CLIOptions.device_path.is_dir():
         typer.echo("No devices found.", err=True)
         raise typer.Exit(1)
 
     found = False
-    for device_path in DeviceOptions.save_path.iterdir():
+    for device_path in CLIOptions.device_path.iterdir():
         dev = fetch_device(device_path.parent, device_path.name)
 
         if dev is None:
             continue
 
-        provisioned = " ([green]Provisioned[/])" if dev.requires_provisioning is False else ""
-        selected = " ([blue]Selected[/])" if DeviceOptions.selected_device == dev.hardware_serial else ""
-        console.print(f"{dev.name} - {dev.hardware_serial}{provisioned}{selected}")
+        provisioned = " ([green]Provisioned[/])" if dev.machine_data.requires_provisioning is False else ""
+        selected = " ([blue]Selected[/])" if CLIOptions.selected_device == dev.machine_data.serial_number else ""
+        console.print(f"{dev.device_info.name} - {dev.machine_data.serial_number}{provisioned}{selected}")
         found = True
 
     if not found:
@@ -73,21 +68,21 @@ def list_() -> None:
 @app.command(help="Get information about a device.")
 @app.command(name="if", hidden=True)
 def info(
-    serial_number: SerialArgument = DeviceOptions.selected_device,
+    serial_number: SerialArgument = CLIOptions.selected_device,
 ) -> None:
     if serial_number is None:
         typer.echo("No device selected. Specify a device using `--serial-number` or the `device sel` command", err=True)
         raise typer.Exit(1)
 
-    dev = fetch_device(DeviceOptions.save_path, serial_number)
+    dev = fetch_device(CLIOptions.device_path, serial_number)
     typer.echo(
-        f"Device: {dev.name}\n"
-        f"Serial Number: {dev.hardware_serial}\n"
-        f"UID: {dev.identifier}\n"
-        f"Product Type: {dev.hardware_version}\n"
-        f"Product Version: {dev.os_version}\n"
-        f"Build Version: {dev.os_build}\n"
-        f"Device Class: {dev.operating_system.value}\n",
+        f"Device: {dev.device_info.name}\n"
+        f"Serial Number: {dev.machine_data.serial_number}\n"
+        f"UID: {dev.machine_data.identifier}\n"
+        f"Model Version: {dev.device_info.model}\n"
+        f"Product Version: {dev.device_info.operating_system_version}\n"
+        f"Build Version: {dev.device_info.operating_system_build}\n"
+        f"Device Class: {dev.device_info.operating_system}\n",
     )
 
 
@@ -149,33 +144,41 @@ async def add(
         ),
     ] = False,
 ) -> None:
-    if fetch_device(DeviceOptions.save_path, serial_number) is not None:
+    if fetch_device(CLIOptions.device_path, serial_number) is not None:
         typer.confirm("Device already exists... Overwrite?", abort=True)
 
     dev = Device(
-        name=device_name,
-        hardware_serial=serial_number,
-        operating_system=operating_system,
-        os_version=os_version,
-        os_build=os_build,
-        hardware_version=hardware_version,
-        save_path=DeviceOptions.save_path,
+        DeviceInfoComponent(
+            name=device_name,
+            operating_system=operating_system,
+            operating_system_version=os_version,
+            operating_system_build=os_build,
+            model=hardware_version,
+        ),
+        MachineDataComponent(
+            serial_number=serial_number,
+        ),
+        APNsCredentialsComponent(),
     )
 
-    dev.save()
+    dev.write(CLIOptions.device_path / serial_number)
 
-    if dev.requires_provisioning is False or skip_provisioning is True:
+    if not dev.machine_data.requires_provisioning or skip_provisioning:
         typer.echo("Skipping Anisette provisioning.")
         return
 
     typer.echo("Starting Anisette provisioning...")
-    await dev.start_provisioning()
+    if dev.machine_data.requires_provisioning:
+        anisette_provider = AnisetteV3Provider(dev.machine_data)
+        await anisette_provider.provision()
 
-    typer.echo("Fetching push credentials from Albert...")
-    if dev.requires_push_credentials:
-        await dev.get_push_credentials()
+    typer.echo("Fetching push certificate from Albert...")
+    if dev.apns_credentials.requires_provisioning:
+        push_key, push_cert = await request_push_certificate(dev.device_info, dev.machine_data)
+        dev.apns_credentials.push_key = push_key
+        dev.apns_credentials.push_cert = push_cert
 
-    dev.save()
+    dev.write(CLIOptions.device_path / serial_number)
 
 
 @app.command(help="Remove a device.")
@@ -200,37 +203,45 @@ async def provision(
         ),
     ] = False,
 ) -> None:
-    dev = fetch_device(DeviceOptions.save_path, serial_number)
+    dev = fetch_device(CLIOptions.device_path, serial_number)
 
     if force is True:
         logger.warning(
             "Re-provisioning the Anisette data and/or push credentials may cause issues with authenticated users!",
         )
 
-    if dev.requires_provisioning is True or force is True:
-        await dev.start_provisioning()
+    required_provisioning = False
+    if dev.machine_data.requires_provisioning or force:
+        required_provisioning = True
 
-    if dev.requires_push_credentials is True or force is True:
-        await dev.get_push_credentials()
+        anisette_provider = AnisetteV3Provider(dev.machine_data)
+        await anisette_provider.provision()
 
-    else:
+    if dev.apns_credentials.requires_provisioning or force:
+        required_provisioning = True
+
+        push_key, push_cert = await request_push_certificate(dev.device_info, dev.machine_data)
+        dev.apns_credentials.push_key = push_key
+        dev.apns_credentials.push_certificate = push_cert
+
+    if not required_provisioning:
         logger.error("Device is already provisioned. Use --force to re-provision.")
         raise typer.Abort
 
-    dev.save()
+    dev.write(CLIOptions.device_path / serial_number)
 
 
 @app.command(help="Select this device for use with other PommeKit commands.")
 @app.command(name="sel", hidden=True)
 def select(serial_number: SerialArgument = None) -> None:
     if serial_number is None:
-        if DeviceOptions.selected_device is None:
+        if CLIOptions.selected_device is None:
             raise typer.Exit
 
-        typer.echo(DeviceOptions.selected_device)
+        typer.echo(CLIOptions.selected_device)
         raise typer.Exit
 
-    set_selected_device(DeviceOptions.save_path, serial_number)
+    set_selected_device(CLIOptions.device_path, serial_number)
 
 
 @app.callback(no_args_is_help=True, hidden=False)
@@ -243,10 +254,10 @@ def device(
             envvar="POMMEKIT_DEVICE_PATH",
             help="The path to save/load device data to.",
         ),
-    ] = DeviceOptions.save_path,
+    ] = CLIOptions.device_path,
 ) -> None:
-    DeviceOptions.save_path = path
-    DeviceOptions.selected_device = get_selected_device(path)
+    CLIOptions.device_path = path
+    CLIOptions.selected_device = get_selected_device(path)
 
-    logger.debug(f"Device path set to '{DeviceOptions.save_path}'.")
-    logger.debug(f"Selected device set to '{DeviceOptions.selected_device}'.")
+    logger.debug(f"Current device path: '{CLIOptions.device_path}'")
+    logger.debug(f"Current selected device: '{CLIOptions.selected_device}'")

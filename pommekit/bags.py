@@ -46,19 +46,19 @@ def get_ids_bag() -> dict[str, str]:
 
 class _Bags:
     @property
-    def apns_bag(self):
+    def apns_bag(self) -> dict[str, ...]:
         if not self._apns_bag:
             self._apns_bag = get_apns_bag()
 
         return self._apns_bag
 
     @property
-    def ids_bag(self):
+    def ids_bag(self) -> dict[str, ...]:
         if not self._ids_bag:
             self._ids_bag = get_ids_bag()
 
         return self._ids_bag
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._apns_bag = {}
         self._ids_bag = {}

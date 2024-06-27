@@ -26,8 +26,12 @@ from ..apns.protocol.transformers import TOPIC_TRANSFORMER, Interface, Nonce, St
 from ..apns.streams import APNsClientStream
 
 if TYPE_CHECKING:
-    from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
-    from cryptography.x509 import Certificate
+    from ..device import (
+        APNsCredentialsComponent,
+        DeviceInfoComponent,
+        ProvidesDeviceInfo,
+        ProvidesPushKeypair,
+    )
 
 logger = getLogger(__name__)
 
@@ -37,54 +41,29 @@ class APNsClient(APNsListener):
 
     def __init__(
         self: Self,
-        push_token: str | None = None,
-        push_key: RSAPrivateKey | None = None,
-        push_cert: Certificate | None = None,
-        flags: UnknownFlag = UnknownFlag.IS_ROOT,
-        interface: Interface = Interface.WIFI,
-        carrier: str = "WiFi",
-        os_version: str = "10.6.4",
-        os_build: str = "10.6.4",
-        hardware_version: str = "windows1,1",
-        nonce: Nonce = None,
-        courier_address: str | None = None,
-        courier_port: int = 5223,
+        push_credential_provider: APNsCredentialsComponent | ProvidesPushKeypair,
+        device_info_provider: DeviceInfoComponent | ProvidesDeviceInfo,
+        courier_address: tuple[str | None, int] = (None, 5223),
     ) -> None:
         """
         Initialize the APNs client.
 
-        :param push_token: The optional push token returned by a prior APNs connection
-        :param push_key: The private key used to sign the CSR sent to Albert
-        :param push_cert: The push certificate returned by Albert
-        :param flags: Device flags — most flags are unknown and undocumented for the time being
-        :param interface: The connection interface — Wi-Fi or cellular
-        :param carrier: The carrier name or "Wi-Fi" if using Wi-Fi
-        :param os_version: The OS version
-        :param os_build: The OS build version specifier
-        :param hardware_version: The hardware version E.g. "iPhone1,1"
-        :param nonce: The nonce used in creation of the signature
+        :param push_credential_provider: Object that provides the `push_key` and `push_cert` properties
         :param courier_address: The address of the APNs courier
-        :param courier_port: The courier port
         """
         super().__init__()
 
-        if courier_address is None:
-            courier_address = APNsClientStream.fetch_random_courier_address()
+        if courier_address[0] is None:
+            courier_address = (APNsClientStream.fetch_random_courier_address(), courier_address[1])
 
         self.courier_address = courier_address
-        self.courier_port = courier_port
 
-        self.push_key = push_key
-        self.push_cert = push_cert
-        self.push_token = push_token
+        self._push_credential_provider = push_credential_provider
+        self._device_info_provider = device_info_provider
 
-        self.flags = flags
-        self.interface = interface
-        self.carrier = carrier
-        self.os_version = os_version
-        self.os_build = os_build
-        self.hardware_version = hardware_version
-        self.nonce = nonce or Nonce()
+        self.flags = UnknownFlag.IS_ROOT
+        self.interface = Interface.WIFI
+        self.carrier = "WiFi"
 
         self.signature: bytes | None = None
         self.on_connected_event: Event = Event()
@@ -102,7 +81,7 @@ class APNsClient(APNsListener):
                 return
 
             if command.push_token is not None:
-                self.push_token = command.push_token
+                self._push_credential_provider.push_token = command.push_token
 
             self.on_connected_event.set()
 
@@ -116,21 +95,28 @@ class APNsClient(APNsListener):
             await self._trigger_event(EventType.TOPIC, topic, self, command)
 
     async def _connect(self: Self) -> None:
-        self._apns_stream = APNsClientStream(self.courier_address, self.courier_port)
+        push_key = self._push_credential_provider.push_key
+        push_cert = self._push_credential_provider.push_cert
+
+        if not push_key or not push_cert:
+            msg = "Valid push credentials were not provided."
+            raise ValueError(msg)
+
+        self._apns_stream = APNsClientStream(*self.courier_address)
         await self._apns_stream.connect()
 
         connect_command = ConnectCommand(
-            push_token=self.push_token,
+            push_token=self._push_credential_provider.push_token,
             state=b"\x01",
             flags=self.flags,
             interface=self.interface,
             carrier=self.carrier,
-            os_version=self.os_version,
-            os_build=self.os_build,
-            hardware_version=self.hardware_version,
-            certificate=self.push_cert,
-            nonce=self.nonce,
-            signature=self.signature,
+            os_version=self._device_info_provider.operating_system_version,
+            os_build=self._device_info_provider.operating_system_build,
+            hardware_version=self._device_info_provider.model,
+            certificate=push_cert,
+            nonce=(nonce := Nonce()),
+            signature=b"\x01\x01" + push_key.sign(bytes(nonce), PKCS1v15(), SHA1()),  # noqa: S303,
             protocol_version__=2,
             redirect_count=0,
         )
@@ -148,15 +134,6 @@ class APNsClient(APNsListener):
 
     async def run(self: Self) -> None:
         """Start the APNs client, connect to the courier, filter topics, and dispatch incoming packets to events."""
-        if self.push_key is None:
-            logger.warning("No push key was provided.")
-
-        if self.push_cert is None:
-            logger.warning("No push certificate was provided.")
-
-        if self.push_key is not None and self.push_cert is not None:
-            self.signature = b"\x01\x01" + self.push_key.sign(bytes(self.nonce), PKCS1v15(), SHA1())  # noqa: S303
-
         await self._connect()
 
         task = asyncio.create_task(self.on_connected_event.wait())
@@ -167,7 +144,14 @@ class APNsClient(APNsListener):
                 command = await self._apns_stream.read()
 
             except IncompleteReadError:
-                await self._apns_stream.send(KeepAliveCommand())
+                await self._apns_stream.send(
+                    KeepAliveCommand(
+                        connection_method="WiFi",
+                        os_version=self._device_info_provider.operating_system_version,
+                        os_build=self._device_info_provider.operating_system_build,
+                        hardware_version=self._device_info_provider.model,
+                    ),
+                )
                 return
 
             _results = await self._trigger_event(EventType.COMMAND, command.__class__, command)
