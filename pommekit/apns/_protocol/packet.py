@@ -10,7 +10,7 @@ from io import BytesIO
 from logging import getLogger
 from typing import Annotated, ClassVar, Final, Self, TypeVar, get_origin
 
-from ..protocol.transformers import NO_OP_TRANSFORMER, DataTransformer
+from .._protocol.transformers import NO_OP_TRANSFORMER, DataTransformer
 
 _T = TypeVar("_T")
 

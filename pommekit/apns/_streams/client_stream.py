@@ -12,12 +12,12 @@ from logging import getLogger
 from typing import TYPE_CHECKING, Final, Self
 
 from ..._util.crypto import randint
-from ..streams._apns_stream import ConnectionType, _APNsStream
+from .._streams._apns_stream import ConnectionType, _APNsStream
 
 if TYPE_CHECKING:
     from types import TracebackType
 
-    from ..protocol.packet import APNsCommand
+    from .._protocol.packet import APNsCommand
 
 COURIER_HOSTNAME_TEMPLATE: Final = "{0}-courier.push.apple.com"
 

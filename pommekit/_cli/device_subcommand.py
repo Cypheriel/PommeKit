@@ -5,12 +5,12 @@ from collections.abc import Generator
 from getpass import getuser
 from logging import getLogger
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated, Final, Optional
 
 import typer
 
 from .._util.aio import run_async
-from ..albert.activation import request_push_certificate
+from ..albert import request_push_certificate
 from ..anisette.v3 import AnisetteV3Provider
 from ..device import APNsCredentialsComponent, Device, DeviceInfoComponent, MachineDataComponent, OperatingSystem
 from . import CLIOptions
@@ -33,7 +33,7 @@ def list_devices(ctx: typer.Context, incomplete: str) -> Generator[str]:
             yield device_path.name
 
 
-SERIAL_HELP = "The serial number of the device."
+SERIAL_HELP: Final = "The serial number of the device."
 SerialArgument = Annotated[
     str,
     typer.Argument(help="The serial number of the device.", show_default=False, autocompletion=list_devices),
@@ -157,7 +157,6 @@ async def add(
     model_number: Annotated[
         Optional[str],
         typer.Option(
-            prompt=True,
             help="The model number of the device.",
         ),
     ] = None,
@@ -195,7 +194,7 @@ async def add(
         ),
         MachineDataComponent(
             serial_number=serial_number,
-            identifier=b64encode(udid).decode(),
+            identifier=b64encode(udid.encode()).decode() if udid else None,
             imei=imei,
             meid=meid,
         ),

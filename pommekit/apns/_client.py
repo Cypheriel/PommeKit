@@ -14,16 +14,16 @@ from cryptography.hazmat.primitives.asymmetric.padding import PKCS1v15
 from cryptography.hazmat.primitives.hashes import SHA1
 
 from .._util.event_listener import EventType
-from ..apns.listener import APNsListener
-from ..apns.protocol.commands import (
+from ..apns._protocol.commands import (
     ClientBoundPushNotificationCommand,
     ConnectCommand,
     ConnectResponseCommand,
     FilterTopicsCommand,
     KeepAliveCommand,
 )
-from ..apns.protocol.transformers import TOPIC_TRANSFORMER, Interface, Nonce, Status, UnknownFlag
-from ..apns.streams import APNsClientStream
+from ..apns._protocol.transformers import TOPIC_TRANSFORMER, Interface, Nonce, Status, UnknownFlag
+from ..apns._streams import APNsClientStream
+from ..apns.listener import APNsListener
 
 if TYPE_CHECKING:
     from ..device import (

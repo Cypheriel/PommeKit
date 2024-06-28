@@ -37,8 +37,9 @@ from httpx import AsyncClient
 
 from .._util.crypto import b64encoded_der, construct_identity_key, randbytes
 from .._util.exponential_backoff import ExponentialBackoff
-from ..apns.protocol.transformers import PUSH_TOKEN_TRANSFORMER, Nonce
+from ..apns.types import PUSH_TOKEN_TRANSFORMER, Nonce
 from ..bags import _Bags
+from ..device import DeviceInfoComponent, OperatingSystem
 from ..gsa import AUStatus, GSAClient
 from ..status_codes import AppleStatusCode
 
@@ -406,30 +407,28 @@ class IDSUser:
 
     async def register_device(
         self: Self,
-        device_name: str,
+        device_info: DeviceInfoComponent,
         validation_data: str | bytes,
-        operating_system: str,
-        product_type: str,
-        os_version: str,
-        build_version: str,
     ) -> None:
         """Register the device under the user."""
         if self.is_fully_authenticated is False:
             msg = "User is not fully authenticated. Device registration is not possible."
             raise ValueError(msg)
 
-        if operating_system == "iOS":
+        if device_info.operating_system == OperatingSystem.IOS:
             self.log(logging.WARNING, "iOS registration is not yet supported! Attempting registration despite this...")
 
         if isinstance(validation_data, str):
             validation_data = b64decode(validation_data)
 
+        os_version = f"{device_info.operating_system},{device_info.product_type},{device_info.operating_system_build}"
+
         payload_data = {
             "language": "en-US",
-            "device-name": device_name,
-            "hardware-version": product_type,
-            "os-version": f"{operating_system},{product_type},{build_version}",
-            "software-version": build_version,
+            "device-name": device_info.name,
+            "hardware-version": device_info.product_type,
+            "os-version": os_version,
+            "software-version": device_info.operating_system_version,
             "private-device-data": {
                 "u": uuid4().hex.upper(),
             },
@@ -480,7 +479,12 @@ class IDSUser:
         }
         payload = plistlib.dumps(payload_data)
 
-        user_agent = f"com.apple.invitation-registration [Mac OS X,{os_version},{build_version},{product_type}]"
+        user_agent = (
+            f"com.apple.invitation-registration [Mac OS X,"
+            f"{device_info.operating_system_version},"
+            f"{device_info.operating_system_build},"
+            f"{device_info.product_type}]"
+        )
 
         response = await self._client.post(
             self.REGISTER_DEVICE_URL,

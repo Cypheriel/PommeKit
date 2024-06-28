@@ -17,7 +17,7 @@ from cryptography.hazmat.primitives.serialization import Encoding
 from cryptography.x509 import load_der_x509_certificate
 
 from ..._util.crypto import randbytes
-from ..protocol.topics import TOPIC_HASHES
+from .._protocol.topics import TOPIC_HASHES
 
 __all__ = [
     "CAPABILITIES_TRANSFORMER",
@@ -31,6 +31,7 @@ __all__ = [
     "STRING_TRANSFORMER",
     "TOPIC_TRANSFORMER",
     "UNKNOWN_FLAG_TRANSFORMER",
+    "BitMask",
     "Capability",
     "DataTransformer",
     "Interface",

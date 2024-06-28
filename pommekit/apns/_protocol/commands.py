@@ -12,8 +12,8 @@ from typing import Annotated, Collection, Final, Literal, TypeAlias, TypeVar
 
 from cryptography.x509 import Certificate
 
-from ..protocol.packet import APNsCommand, Item
-from ..protocol.transformers import (
+from .._protocol.packet import APNsCommand, Item
+from .._protocol.transformers import (
     CAPABILITIES_TRANSFORMER,
     DER_CERTIFICATE_TRANSFORMER,
     INTERFACE_TRANSFORMER,

@@ -2,11 +2,11 @@
 #  Copyright (C) 2024  Cypheriel
 from io import BytesIO
 
-from pommekit.apns.protocol.transformers import PUSH_TOKEN_TRANSFORMER, UnknownFlag
+from pommekit.apns.types import PUSH_TOKEN_TRANSFORMER, UnknownFlag
 
 
 def test_connect_packet():
-    from pommekit.apns.protocol.commands import ConnectCommand
+    from pommekit.apns.commands import ConnectCommand
 
     push_token = PUSH_TOKEN_TRANSFORMER.deserialize(b"Meow, world!")
     command = ConnectCommand(

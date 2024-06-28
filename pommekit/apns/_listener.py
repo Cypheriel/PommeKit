@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Callable, Self
 from .._util.event_listener import EventListener, EventType
 
 if TYPE_CHECKING:
-    from ..apns.protocol.packet import APNsCommand
+    from ..apns._protocol.packet import APNsCommand
 
 
 class APNsListener(EventListener):

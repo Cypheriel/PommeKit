@@ -19,16 +19,19 @@ from cryptography.x509 import Certificate, load_pem_x509_certificate
 from httpx import AsyncClient, Response
 from lxml import etree
 
-from ..albert.device_csr import generate_device_csr
 from ..device import (
     OperatingSystem,
     ProvidesIdentifier,
     ProvidesSerialNumber,
 )
+from ._device_csr import generate_device_csr
 
 if TYPE_CHECKING:
     from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
-    from lxml.etree import _Element
+
+    # lxml does not provide this type publicly
+    # noinspection PyProtectedMember
+    from lxml.etree import _Element as Element
 
     from ..device import (
         DeviceInfoComponent,
@@ -192,7 +195,7 @@ async def request_push_certificate(
         )
         raise AlbertError
 
-    root: _Element = etree.fromstring(response.text, etree.XMLParser(recover=True, resolve_entities=False))  # noqa: S320
+    root: Element = etree.fromstring(response.text, etree.XMLParser(recover=True, resolve_entities=False))  # noqa: S320
     response_data: AlbertResponseData = plistlib.loads(
         etree.tostring(root.find(".//plist", namespaces=root.nsmap)),
     )

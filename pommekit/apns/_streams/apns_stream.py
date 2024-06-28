@@ -10,13 +10,13 @@ from ssl import SSLContext
 from tempfile import TemporaryFile
 from typing import TYPE_CHECKING, Final, Self
 
-from ..protocol.commands import COMMAND_MAP, Direction
+from .._protocol.commands import COMMAND_MAP, Direction
 
 if TYPE_CHECKING:
     from asyncio import StreamReader, StreamWriter
     from importlib.abc import Traversable
 
-    from ..protocol.packet import APNsCommand
+    from .._protocol.packet import APNsCommand
 
 _RESOURCE_ROOT = resources.files(__package__)
 _SERVER_CERTIFICATE = _RESOURCE_ROOT / "server.crt"
