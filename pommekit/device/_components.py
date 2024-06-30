@@ -304,7 +304,22 @@ class MachineDataComponent(DeviceDataComponent):
 
     @property
     def requires_provisioning(self: Self) -> bool:
-        return set(self.missing.keys()) != {"imei", "meid"}
+        return (
+            len(
+                set(self.missing.keys())
+                & {
+                    "serial_number",
+                    "identifier",
+                    "user_agent",
+                    "client_info",
+                    "adi_pb",
+                    "machine_id",
+                    "one_time_password",
+                    "routing_info",
+                },
+            )
+            > 0
+        )
 
     def __init__(
         self: Self,
@@ -449,6 +464,12 @@ class ProvidesPushKeypair(Protocol):
 
     @property
     def push_cert(self: Self) -> Certificate | None: ...
+
+
+class ProvidesAPNsCredentials(
+    ProvidesPushToken,
+    ProvidesPushKeypair,
+): ...
 
 
 class APNsCredentialsComponent(DeviceDataComponent):

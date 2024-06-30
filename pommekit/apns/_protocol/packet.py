@@ -124,7 +124,6 @@ class APNsCommand:
 
             stream.read(COMMAND_LENGTH_BYTES)  # Skip the length field
 
-        unknown_items: list[tuple[int, bytes]] = []
         values = _get_default_field_values(cls)
 
         while stream.tell() < len(data):
@@ -158,19 +157,30 @@ class APNsCommand:
                             *command_field.default_factory((metadata.transformer.deserialize(item_data),)),
                         ),
                     )
+                    break
 
                 # If the field is not a collection, set the value directly — this will overwrite any previous value
-                else:
-                    values[command_field.name] = metadata.transformer.deserialize(item_data)
+                values[command_field.name] = metadata.transformer.deserialize(item_data)
+                break
+
+            else:
+                values["unknown_items"].append((item_id, item_data))
 
         # noinspection PyArgumentList
-        return cls(**values, unknown_items=unknown_items)
+        return cls(**values)
 
     def __repr__(self: Self) -> str:
         """Similar to the default repr, but with tabs and newlines for readability and excludes None values."""
         result = f"{self.__class__.__name__}(\n\t"
 
-        attrs = [f"{attr.name}={value!r}" for attr in fields(self) if (value := getattr(self, attr.name)) is not None]
+        attrs = [
+            f"{attr.name}={value!r}"
+            for attr in sorted(
+                fields(self),
+                key=lambda f: f.type.__metadata__[0].item_id if get_origin(f.type) is Annotated else -1,
+            )
+            if (value := getattr(self, attr.name)) is not None
+        ]
 
         result += ",\n\t".join(attrs).strip() + "\n)"
         return result

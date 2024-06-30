@@ -12,7 +12,7 @@ from logging import getLogger
 from typing import TYPE_CHECKING, Final, Self
 
 from ..._util.crypto import randint
-from .._streams._apns_stream import ConnectionType, _APNsStream
+from .._streams.apns_stream import ConnectionType, _APNsStream
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -95,9 +95,13 @@ class APNsClientStream(_APNsStream):
         """Read a command from the stream."""
         result = await super()._read_command(self._stream_reader)
         self.log(logging.DEBUG, f"Received {result.__class__.__name__} (0x{result.command_id:02X}).")
+        self.log(logging.DEBUG, f"{result}")
+        self.log(logging.DEBUG, f"{result.bytes_debug_repr()}")
         return result
 
     async def send(self: Self, command: APNsCommand) -> None:
         """Send a command to the stream."""
         self.log(logging.DEBUG, f"Sending {command.__class__.__name__} (0x{command.command_id:02X}).")
+        self.log(logging.DEBUG, f"{command}")
+        self.log(logging.DEBUG, f"{command.bytes_debug_repr()}")
         await super()._send_command(self._stream_writer, command)

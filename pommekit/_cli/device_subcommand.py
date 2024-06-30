@@ -8,10 +8,15 @@ from pathlib import Path
 from typing import Annotated, Final, Optional
 
 import typer
+from cryptography.hazmat.primitives.asymmetric.padding import PKCS1v15
+from cryptography.hazmat.primitives.hashes import SHA1
 
 from .._util.aio import run_async
 from ..albert import request_push_certificate
 from ..anisette.v3 import AnisetteV3Provider
+from ..apns import APNsClientStream
+from ..apns.commands import ConnectCommand, ConnectResponseCommand
+from ..apns.types import Nonce
 from ..device import APNsCredentialsComponent, Device, DeviceInfoComponent, MachineDataComponent, OperatingSystem
 from . import CLIOptions
 from .util.device_utils import fetch_device
@@ -174,14 +179,10 @@ async def add(
         typer.confirm("Device already exists... Overwrite?", abort=True)
 
     if operating_system == OperatingSystem.IOS:
-        if udid is None:
-            udid = typer.prompt("UDID")
-        if imei is None:
-            imei = typer.prompt("IMEI")
-        if meid is None:
-            meid = typer.prompt("MEID")
-        if model_number is None:
-            model_number = typer.prompt("Model Number")
+        udid = udid or typer.prompt("UDID")
+        imei = imei or typer.prompt("IMEI")
+        meid = meid or typer.prompt("MEID")
+        model_number = model_number or typer.prompt("Model Number")
 
     dev = Device(
         DeviceInfoComponent(
@@ -207,16 +208,39 @@ async def add(
         typer.echo("Skipping Anisette provisioning.")
         return
 
-    typer.echo("Starting Anisette provisioning...")
+    logger.info("Starting Anisette provisioning...")
     if dev.machine_data.requires_provisioning:
         anisette_provider = AnisetteV3Provider(dev.machine_data)
         await anisette_provider.provision()
 
-    typer.echo("Fetching push certificate from Albert...")
+    logger.info("Fetching push certificate from Albert...")
     if dev.apns_credentials.requires_provisioning:
         push_key, push_cert = await request_push_certificate(dev.device_info, dev.machine_data)
         dev.apns_credentials.push_key = push_key
         dev.apns_credentials.push_cert = push_cert
+
+    logger.info("Fetching push token from APNs...")
+    apns_client = APNsClientStream()
+    await apns_client.connect()
+    await apns_client.send(
+        ConnectCommand(
+            push_token=dev.apns_credentials.push_token,
+            certificate=dev.apns_credentials.push_cert,
+            nonce=(nonce := Nonce()),
+            signature=b"\x01\x01" + dev.apns_credentials.push_key.sign(bytes(nonce), PKCS1v15(), SHA1()),  # noqa: S303
+        ),
+    )
+    response = await apns_client.read()
+    if not isinstance(response, ConnectResponseCommand):
+        msg = "Invalid response from APNs server."
+        raise TypeError(msg)
+
+    if response.status != 0:
+        msg = f"Failed to provision push credentials: {response.status}"
+        raise ValueError(msg)
+
+    await apns_client.close()
+    dev.apns_credentials.push_token = response.push_token
 
     dev.write(CLIOptions.device_path / serial_number)
 
@@ -278,6 +302,32 @@ async def provision(
         push_key, push_cert = await request_push_certificate(dev.device_info, dev.machine_data)
         dev.apns_credentials.push_key = push_key
         dev.apns_credentials.push_certificate = push_cert
+
+        apns_client = APNsClientStream()
+        await apns_client.connect()
+        await apns_client.send(
+            ConnectCommand(
+                push_token=None,
+                certificate=dev.apns_credentials.push_cert,
+                nonce=(nonce := Nonce()),
+                signature=b"\x01\x01" + dev.apns_credentials.push_key.sign(bytes(nonce), PKCS1v15(), SHA1()),  # noqa: S303
+                os_version=dev.device_info.operating_system_version,
+                os_build=dev.device_info.operating_system_build,
+                hardware_version=dev.device_info.product_type,
+            ),
+        )
+
+        response = await apns_client.read()
+        if not isinstance(response, ConnectResponseCommand):
+            msg = "Invalid response from APNs server."
+            raise ValueError(msg)
+
+        if response.status != 0:
+            msg = f"Failed to provision push credentials: {response.status.name}"
+            raise ValueError(msg)
+
+        await apns_client.close()
+        dev.apns_credentials.push_token = response.push_token
 
     if not required_provisioning:
         logger.error("Device is already provisioned. Use --force to re-provision.")

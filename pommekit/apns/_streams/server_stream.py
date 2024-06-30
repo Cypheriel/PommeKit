@@ -10,7 +10,7 @@ from asyncio import Server, StreamReader, StreamWriter
 from logging import getLogger
 from typing import TYPE_CHECKING, Awaitable, Callable, Self
 
-from .._streams._apns_stream import ConnectionType, _APNsStream
+from .._streams.apns_stream import ConnectionType, _APNsStream
 
 if TYPE_CHECKING:
     from types import TracebackType

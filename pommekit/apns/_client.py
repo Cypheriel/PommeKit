@@ -14,16 +14,16 @@ from cryptography.hazmat.primitives.asymmetric.padding import PKCS1v15
 from cryptography.hazmat.primitives.hashes import SHA1
 
 from .._util.event_listener import EventType
-from ..apns._protocol.commands import (
+from ..apns.commands import (
     ClientBoundPushNotificationCommand,
     ConnectCommand,
     ConnectResponseCommand,
     FilterTopicsCommand,
     KeepAliveCommand,
 )
-from ..apns._protocol.transformers import TOPIC_TRANSFORMER, Interface, Nonce, Status, UnknownFlag
-from ..apns._streams import APNsClientStream
-from ..apns.listener import APNsListener
+from ..apns.types import TOPIC_TRANSFORMER, Interface, Nonce, Status, UnknownFlag
+from ._listener import APNsListener
+from ._streams.client_stream import APNsClientStream
 
 if TYPE_CHECKING:
     from ..device import (
@@ -113,7 +113,7 @@ class APNsClient(APNsListener):
             carrier=self.carrier,
             os_version=self._device_info_provider.operating_system_version,
             os_build=self._device_info_provider.operating_system_build,
-            hardware_version=self._device_info_provider.model_number,
+            hardware_version=self._device_info_provider.product_type,
             certificate=push_cert,
             nonce=(nonce := Nonce()),
             signature=b"\x01\x01" + push_key.sign(bytes(nonce), PKCS1v15(), SHA1()),  # noqa: S303,

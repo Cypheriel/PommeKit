@@ -1,8 +1,8 @@
 #  Copyright (C) 2024  Cypheriel
 from pathlib import Path
 
-from pommekit._cli.util.app_dirs import USER_DATA_DIR
-from pommekit.device import Device
+from ...device import Device
+from .app_dirs import USER_DATA_DIR
 
 
 def fetch_device(path: Path, serial_number: str) -> Device | None:

@@ -189,7 +189,7 @@ class Status(IntEnum):
 class Nonce:
     """A simple nonce used for various purposes."""
 
-    nonce_time: datetime = field(default_factory=lambda: datetime.now().astimezone())
+    nonce_time: datetime = field(default_factory=lambda: datetime.now(tz=timezone.utc))
     random_bytes: bytes = field(default_factory=lambda: randbytes(8))
     prefix: bytes = b"\x00"
 
